@@ -1,37 +1,32 @@
+import chalk from 'chalk';
 import mcps from '../mcps/index.js';
 import { create_tool } from '../../lib/tools.js';
 
-export default () => {
+export default async () => {
     const tools = [];
     const loadedMcps = new Set();
 
-    tools.push(create_tool(
-        'get_time',
-        'Get current date and time in ISO format.',
-        {},
-        async () => new Date().toISOString(),
-    ));
+    const load_mcp = async (name) => {
+        if (!mcps[name]) {
+            throw new Error(`Unknown MCP: "${name}". Available: ${Object.keys(mcps).join(', ')}`);
+        }
 
-    tools.push(create_tool(
-        'webfetch',
-        'Fetch content from a URL and return the response as text.',
-        {
-            url: { type: 'string', description: 'The URL to fetch' },
-            method: { type: 'string', description: 'HTTP method (default: GET)' },
-            headers: { type: 'object', description: 'Optional HTTP headers as key-value pairs' },
-            body: { type: 'string', description: 'Optional request body (for POST, PUT, etc.)' },
-        },
-        async ({ url, method = 'GET', headers = {}, body }) => {
-            const res = await fetch(url, {
-                method,
-                headers,
-                ...(body ? { body } : {}),
-            });
-            const text = await res.text();
-            return `HTTP ${res.status} ${res.statusText}\n\n${text}`;
-        },
-    ));
+        if (loadedMcps.has(name)) {
+            throw new Error(`MCP "${name}" already loaded.`);
+        }
 
+        const mcp = await mcps[name]();
+
+        for (const tool of mcp.tools) {
+            tools.push(tool);
+        }
+
+        loadedMcps.add(name);
+
+        const toolList = mcp.tools.map(t => chalk.cyan(t.name)).join(chalk.dim(', '));
+
+        console.log(`→ ${chalk.bold.green('MCP Loaded!')} ${chalk.yellow(mcp.name)} ${chalk.dim('|')} ${chalk.dim('Tools:')} ${toolList}`);
+    };
 
     tools.push(create_tool(
         'load_mcp',
@@ -44,23 +39,11 @@ export default () => {
             name: { type: 'string', description: `Name of the MCP to load. Available: ${Object.keys(mcps).map(n => `"${n}"`).join(', ')}` },
         },
         async ({ name }) => {
-            if (!mcps[name]) {
-                return `Unknown MCP: "${name}". Available: ${Object.keys(mcps).join(', ')}`;
+            try {
+                return load_mcp(name);
+            } catch (e) {
+                return e.message;
             }
-
-            if (loadedMcps.has(name)) {
-                return `MCP "${name}" already loaded.`;
-            }
-
-            const mcp = mcps[name]();
-
-            for (const tool of mcp.tools) {
-                tools.push(tool);
-            }
-
-            loadedMcps.add(name);
-
-            return `Loaded MCP "${name}" with ${mcp.tools.length} tools: ${mcp.tools.map(t => t.name).join(', ')}`;
         },
     ));
 
@@ -79,6 +62,10 @@ export default () => {
             return `Tool "${name}" threw an error: ${e.message}`;
         }
     };
+
+    // Auto-load the minicode-defaults MCP (get_time, webfetch)
+    await load_mcp('minicodeDefaults');
+    await load_mcp('skills');
 
     return { definitions, call };
 };

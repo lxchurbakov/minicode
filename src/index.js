@@ -52,10 +52,11 @@ const { positionals, flags } = parse_argv(process.argv.slice(2));
     // Finally we start session
     //
 
-    const repl = Repl();
+    
     const model = models.build(flags.model)
-    const tools = Tools();
+    const tools = await Tools();
     const loop = Loop(model, tools, markdown_write);
+    const repl = Repl();
 
     // const write = markdown_write
 

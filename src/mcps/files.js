@@ -8,13 +8,13 @@ async function readFileLines(filePath, offset = 1, limit = null) {
     const content = await fs.readFile(filePath, 'utf8');
     const lines = content.split('\n');
     const totalLines = lines.length;
-    
+
     const startIdx = Math.max(0, offset - 1);
     const endIdx = limit ? Math.min(startIdx + limit, totalLines) : totalLines;
-    
+
     const selectedLines = lines.slice(startIdx, endIdx);
     const result = selectedLines.map((line, i) => `${startIdx + i + 1}:${line}`).join('\n');
-    
+
     const meta = `[Lines ${startIdx + 1}-${endIdx} of ${totalLines}]`;
     return `${meta}\n${result}`;
 }
@@ -22,14 +22,14 @@ async function readFileLines(filePath, offset = 1, limit = null) {
 // Helper: apply edits to file content
 function applyEdits(content, edits) {
     let lines = content.split('\n');
-    
+
     // Sort edits by line number descending to avoid index shifting issues
     const sortedEdits = [...edits].sort((a, b) => (b.line || 0) - (a.line || 0));
-    
+
     for (const edit of sortedEdits) {
         const { type, line, count, text } = edit;
         const idx = line - 1;
-        
+
         switch (type) {
             case 'replace':
                 lines.splice(idx, count || 1, ...(text || '').split('\n'));
@@ -45,7 +45,7 @@ function applyEdits(content, edits) {
                 break;
         }
     }
-    
+
     return lines.join('\n');
 }
 
@@ -142,7 +142,8 @@ Example: edit_file({path: "file.js", edits: [
                     const lines = newContent.split('\n').length;
                     return `OK (${edits.length} edits applied, ${lines} lines total)`;
                 } else {
-                    return `DRY RUN result:\n\n${newContent}`;
+                    const header = content === '' ? '(new file — would create)\n\n' : '';
+                    return `DRY RUN result:\n${header}${newContent}`;
                 }
             } catch (e) {
                 return `Error: ${e.message}`;
@@ -166,16 +167,16 @@ Use recursive option to list subdirectories.`,
             try {
                 const results = [];
                 const ignoreSet = new Set(ignore);
-                
+
                 async function listDir(dir, depth = 0) {
                     const indent = '  '.repeat(depth);
                     const entries = await fs.readdir(dir, { withFileTypes: true });
-                    
+
                     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
                         if (ignoreSet.has(entry.name)) continue;
-                        
+
                         const fullPath = path.join(dir, entry.name);
-                        
+
                         if (entry.isSymbolicLink()) {
                             const target = await fs.readlink(fullPath).catch(() => '?');
                             results.push(`${indent}[L] ${entry.name} -> ${target}`);
@@ -191,13 +192,13 @@ Use recursive option to list subdirectories.`,
                         }
                     }
                 }
-                
+
                 function formatSize(bytes) {
                     if (bytes < 1024) return `${bytes}B`;
                     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
                     return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
                 }
-                
+
                 await listDir(dirPath);
                 return results.length ? results.join('\n') : '(empty directory)';
             } catch (e) {
@@ -245,7 +246,7 @@ Example: batch_files({operations: [
         async ({ operations }) => {
             const results = [];
             const fileContents = {};
-            
+
             for (let i = 0; i < operations.length; i++) {
                 const { op, path: filePath, src, dest, content, offset, limit } = operations[i];
                 try {
@@ -281,14 +282,14 @@ Example: batch_files({operations: [
                     results.push(`[${i + 1}] ${op} ${filePath || src}: Error - ${e.message}`);
                 }
             }
-            
+
             let output = results.join('\n');
-            
+
             // Append file contents for read operations
             for (const [filePath, content] of Object.entries(fileContents)) {
                 output += `\n\n--- ${filePath} ---\n${content}`;
             }
-            
+
             return output;
         },
     ));
@@ -311,16 +312,17 @@ Searches file contents and returns matching lines with optional context.`,
             try {
                 const ignoreSet = new Set(ignore);
                 const results = [];
-                
+
                 async function searchFile(filePath) {
                     try {
                         const content = await fs.readFile(filePath, 'utf8');
                         const lines = content.split('\n');
-                        
-                        lines.forEach((line, idx) => {
-                            const regex = new RegExp(pattern, 'gi');
-                            const matches = regex.test(line);
-                            if (matches && results.length < maxResults) {
+                        const regex = new RegExp(pattern, 'i');
+
+                        for (let idx = 0; idx < lines.length; idx++) {
+                            if (results.length >= maxResults) break;
+                            regex.lastIndex = 0;
+                            if (regex.test(lines[idx])) {
                                 if (context > 0) {
                                     const start = Math.max(0, idx - context);
                                     const end = Math.min(lines.length, idx + context + 1);
@@ -331,24 +333,24 @@ Searches file contents and returns matching lines with optional context.`,
                                     }).join('\n');
                                     results.push(`${filePath}:\n${snippet}`);
                                 } else {
-                                    results.push(`${filePath}:${idx + 1}: ${line.trim()}`);
+                                    results.push(`${filePath}:${idx + 1}: ${lines[idx].trim()}`);
                                 }
                             }
-                        });
+                        }
                     } catch (e) {
                         // Skip files that can't be read (binary, permission, etc.)
                     }
                 }
-                
+
                 async function searchDir(dir) {
                     const entries = await fs.readdir(dir, { withFileTypes: true });
-                    
+
                     for (const entry of entries) {
                         if (results.length >= maxResults) break;
                         if (ignoreSet.has(entry.name)) continue;
-                        
+
                         const fullPath = path.join(dir, entry.name);
-                        
+
                         if (entry.isDirectory() && recursive) {
                             await searchDir(fullPath);
                         } else if (entry.isFile()) {
@@ -358,19 +360,21 @@ Searches file contents and returns matching lines with optional context.`,
                         }
                     }
                 }
-                
+
                 function matchGlob(name, pattern) {
-                    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+                    // Escape regex special characters first, then convert glob wildcards
+                    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+                    const regex = new RegExp('^' + escaped + '$', 'i');
                     return regex.test(name);
                 }
-                
+
                 const stat = await fs.stat(searchPath);
                 if (stat.isDirectory()) {
                     await searchDir(searchPath);
                 } else {
                     await searchFile(searchPath);
                 }
-                
+
                 if (results.length === 0) return 'No matches found';
                 const suffix = results.length >= maxResults ? `\n... (limited to ${maxResults} results)` : '';
                 const separator = context > 0 ? '\n\n' : '\n';
@@ -390,25 +394,32 @@ Searches file contents and returns matching lines with optional context.`,
         async ({ path: filePath }) => {
             try {
                 const stat = await fs.stat(filePath);
+                const isDir = stat.isDirectory();
                 const info = {
                     path: path.resolve(filePath),
-                    type: stat.isDirectory() ? 'directory' : 'file',
+                    type: isDir ? 'directory' : 'file',
                     size: stat.size,
                     created: stat.birthtime.toISOString(),
                     modified: stat.mtime.toISOString(),
                     accessed: stat.atime.toISOString(),
                 };
-                
-                if (stat.isFile()) {
-                    const content = await fs.readFile(filePath, 'utf8').catch(() => null);
-                    if (content) {
-                        info.lines = content.split('\n').length;
-                        info.encoding = 'utf8';
+
+                if (!isDir) {
+                    // Only read file if it's reasonably small (under 1MB) to get line count
+                    if (stat.size < 1024 * 1024) {
+                        const content = await fs.readFile(filePath, 'utf8').catch(() => null);
+                        if (content !== null) {
+                            info.lines = content.split('\n').length;
+                            info.encoding = 'utf8';
+                        } else {
+                            info.encoding = 'binary';
+                        }
                     } else {
-                        info.encoding = 'binary';
+                        info.encoding = 'utf8';
+                        info.lines = '(skipped — file too large to count lines)';
                     }
                 }
-                
+
                 return Object.entries(info)
                     .map(([k, v]) => `${k}: ${v}`)
                     .join('\n');

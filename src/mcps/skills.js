@@ -14,19 +14,19 @@ async function ensureSkillsDir() {
 
 // Resolve skill file path (name -> .md file)
 function skillPath(name) {
-    // Sanitize name: only allow alphanumeric, dashes, underscores
     const safe = name.replace(/[^a-zA-Z0-9_-]/g, '_');
     return path.join(SKILLS_DIR, `${safe}.md`);
 }
 
-export default () => {
+export default async () => {
     const tools = [];
 
     tools.push(create_tool(
         'list_skills',
-        `List all available skills with their name, line count, and a first-line preview.
+        `List all available skills with their name, description, tags, and line count.
 
-Returns a table of skills. Use get_skill to read the full content of any skill.`,
+Each skill has YAML front matter with title, description, and tags.
+Use get_skill to read the full content of any skill.`,
         {},
         async () => {
             try {
@@ -41,19 +41,40 @@ Returns a table of skills. Use get_skill to read the full content of any skill.`
                     const content = await fs.readFile(path.join(SKILLS_DIR, file), 'utf8');
                     const lines = content.split('\n');
                     const lineCount = lines.length;
-                    const preview = lines[0]?.trim().slice(0, 80) || '(empty)';
-                    return { name, lineCount, preview };
+
+                    // Parse YAML front matter (between --- markers)
+                    let title = name;
+                    let description = '(no description)';
+                    let tags = [];
+
+                    if (lines[0]?.trim() === '---') {
+                        const endIdx = lines.findIndex((l, i) => i > 0 && l.trim() === '---');
+                        if (endIdx > 0) {
+                            const yamlLines = lines.slice(1, endIdx);
+                            for (const yl of yamlLines) {
+                                if (yl.startsWith('title:')) {
+                                    title = yl.replace(/^title:\s*['"]?|['"]?\s*$/g, '').trim();
+                                } else if (yl.startsWith('description:')) {
+                                    description = yl.replace(/^description:\s*['"]?|['"]?\s*$/g, '').trim();
+                                } else if (yl.startsWith('tags:')) {
+                                    const tagMatch = yl.match(/tags:\s*\[([^\]]+)\]/);
+                                    if (tagMatch) {
+                                        tags = tagMatch[1].split(',').map(t => t.trim().replace(/['"]/g, ''));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    return { name, title, description, tags, lineCount };
                 }));
 
-                const nameW = Math.max(4, ...rows.map(r => r.name.length));
-                const linesW = 5;
-                const header = `${'Name'.padEnd(nameW)}  ${'Lines'.padEnd(linesW)}  Preview`;
-                const divider = `${'-'.repeat(nameW)}  ${'-'.repeat(linesW)}  ${'-'.repeat(40)}`;
-                const body = rows.map(r =>
-                    `${r.name.padEnd(nameW)}  ${String(r.lineCount).padEnd(linesW)}  ${r.preview}`
-                ).join('\n');
+                const out = rows.map(r => {
+                    const tagStr = r.tags.length ? r.tags.join(', ') : '-';
+                    return `  ${r.name.padEnd(14)} ${String(r.lineCount).padEnd(5)} ${r.description}\n     ${''.padEnd(14)} tags: ${tagStr}`;
+                }).join('\n');
 
-                return `${header}\n${divider}\n${body}`;
+                return `Available skills:\n\n${'Name'.padEnd(15)} Lines  Description\n${'-'.repeat(15)} ${'-'.repeat(5)}  ${'-'.repeat(40)}\n${out}\n\nUse \`get_skill({name: "..."})\` to read the full content.`;
             } catch (e) {
                 return `Error: ${e.message}`;
             }
@@ -85,11 +106,20 @@ Returns the raw markdown content of the skill.`,
         'add_skill',
         `Add or update a skill (upsert). If the skill already exists it will be overwritten.
 
-Skills are stored as markdown files. Use clear, instructional markdown — headers, bullet lists, examples.
-The name should be short and descriptive (e.g. "tests", "git-commits", "api-design").`,
+Skills are stored as markdown files with YAML front matter. Use clear, instructional markdown — headers, bullet lists, examples.
+The name should be short and descriptive (e.g. "tests", "git-commits", "api-design").
+**Important:** Every skill file must start with YAML front matter between \`---\` markers:
+\`\`\`
+---
+title: "Human-readable Title"
+description: "Brief summary of what the skill teaches."
+tags: ["tag1", "tag2", "tag3"]
+---
+\`\`\`
+The title, description, and tags are shown by list_skills so agents can quickly understand what the skill covers.`,
         {
             name: { type: 'string', description: 'Skill name (without .md extension, alphanumeric/dashes/underscores)' },
-            content: { type: 'string', description: 'Full markdown content of the skill' },
+            content: { type: 'string', description: 'Full markdown content of the skill, must include YAML front matter with title, description, and tags' },
         },
         async ({ name, content }) => {
             try {
@@ -125,5 +155,5 @@ The name should be short and descriptive (e.g. "tests", "git-commits", "api-desi
         },
     ));
 
-    return { name: 'skills', tools, description: 'Manage reusable agent skills (add, list, get, delete). Skills are markdown instructions stored persistently.' };
+    return { name: 'skills', tools, description: 'Manage reusable agent skills (add, list, get, delete). Skills are markdown files with YAML front matter (title, description, tags) stored persistently.' };
 };
