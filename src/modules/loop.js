@@ -35,103 +35,79 @@ export default (model, tools, write) => { // , tools, writer
     // let abortController = null;
 
     const run = async () => {
-        // abortController = new AbortController();
+        try {
+            const stream = await model.complete(messages, tools.definitions(), {
+                // signal: abortController.signal,
+            });
 
-        const stream = await model.complete(messages, tools.definitions(), {
-            // signal: abortController.signal,
-        });
+            let response = '';
+            let calls = [];
 
-        // session.requests++;
+            write('\n');
 
-        let response = '';
-        let calls = [];
+            for await (const chunk of stream) {
+                if (chunk.usage) {
+                    session.input += chunk.usage.prompt_tokens || 0;
+                    session.output += chunk.usage.completion_tokens || 0;
+                    session.context = chunk.usage.prompt_tokens || 0;
+                }
 
-        // const is_interrupted = () => abortController?.signal.aborted;
+                const delta = get_delta(chunk);
 
-        // write('## \n \n');
-        write('\n');
+                if (!delta) {
+                    continue;
+                }
 
-        for await (const chunk of stream) {
-            // if (is_interrupted()) {
-            //     break;
-            // }
+                if (delta.content) {
+                    response += delta.content;
+                    write(delta.content);
+                }
 
-            if (chunk.usage) {
-                session.input += chunk.usage.prompt_tokens || 0;
-                session.output += chunk.usage.completion_tokens || 0;
-                session.context = chunk.usage.prompt_tokens || 0;
-            }
-
-            const delta = get_delta(chunk);
-
-            if (!delta) {
-                continue;
-            }
-
-            if (delta.content) {
-                response += delta.content;
-                // writer(delta.content);
-                // console.log()
-                write(delta.content);
-            }
-
-            if (delta.tool_calls) {
-                for (const call of delta.tool_calls) {
-                    calls = add_call_delta(calls, call);
+                if (delta.tool_calls) {
+                    for (const call of delta.tool_calls) {
+                        calls = add_call_delta(calls, call);
+                    }
                 }
             }
-        }
 
-        write('\n');
-        write('\n');
+            write('\n');
+            write('\n');
 
-        // writer.flush?.();
+            const message = { role: 'assistant', content: response || null };
 
-        // if (is_interrupted()) {
-        //     if (response) {
-        //         messages.push({ role: 'assistant', content: response + '\n\n[interrupted]' });
-        //     }
-
-        //     console.log(build_status_bar(session, agent.name));
-
-        //     return;
-        // }
-
-        const message = { role: 'assistant', content: response || null };
-
-        if (calls.length) {
-            message.tool_calls = calls.map((call, index) => ({
-                id: call.id || `call_${index}`,
-                type: 'function',
-                function: { name: call.name, arguments: call.args },
-            }));
-        }
-
-        messages.push(message);
-        // console.log();
-
-        if (message.tool_calls) {
-            for (const call of message.tool_calls) {
-                // if (is_interrupted()) {
-                //     console.log(build_status_bar(session, agent.name));
-
-                //     return;
-                // }
-
-                console.log(chalk.dim(`~ Tool call ${call.function.name} (${call.function.arguments})`));
-
-                const result = await tools.call({
-                    name: call.function.name,
-                    args: parse_arguments(call.function.arguments),
-                });                
-
-                messages.push({ role: 'tool', tool_call_id: call.id, content: String(result) });
+            if (calls.length) {
+                message.tool_calls = calls.map((call, index) => ({
+                    id: call.id || `call_${index}`,
+                    type: 'function',
+                    function: { name: call.name, arguments: call.args },
+                }));
             }
 
-            return run();
-        }
+            messages.push(message);
 
-        // console.log(build_status_bar(session, agent.name));
+            if (message.tool_calls) {
+                const results = await Promise.all(message.tool_calls.map(async (call) => {
+                    console.log(chalk.dim(`~ Tool call ${call.function.name} (${call.function.arguments})`));
+
+                    const result = await tools.call({
+                        name: call.function.name,
+                        args: parse_arguments(call.function.arguments),
+                    });
+
+                    return { id: call.id, result };
+                }));
+
+                for (const { id, result } of results) {
+                    messages.push({ role: 'tool', tool_call_id: id, content: String(result) });
+                }
+
+                return run();
+            }
+        } catch (e) {
+            write(chalk.red(`[Error] ${e.message}`) + '\n');
+            write(chalk.dim(`  (check your network / API key / model config)`) + '\n');
+            write('\n');
+        }
     };
 
     const push = (content) => {

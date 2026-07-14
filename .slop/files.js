@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import { create_tool } from '../../lib/tools.js';
+import { create_tool } from '../lib/tools.js';
 
 // Helper: read file with optional line range
 async function readFileLines(filePath, offset = 1, limit = null) {

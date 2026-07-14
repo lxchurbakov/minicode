@@ -11,11 +11,11 @@
 [x] Листинг моделей
 [x] Tools execution
 
-[ ] Lazy MCPs
+[x] Lazy MCPs
 [ ] Ya MCPs
 
-[ ] Skills
-[ ] Boxes (for markdown)
+[x] Skills
+[x] Boxes (for markdown)
 
 [ ] Delegation new context / keep-context
 [ ] Delegation evaluation
