@@ -1,0 +1,13 @@
+{
+    "models": [
+        {
+            "name": "cloud/deepseek/v4-flash",
+            "description": "Deepseek V4 Flash from Ya Cloud (billable)",
+            "url": "https://ai.api.cloud.yandex.net/v1",
+            "model": "gpt://b1g6tvt0o922lp73807s/deepseek-v4-flash/latest",
+            "key": "{{YA_CLOUD_API_KEY}}",
+            "prompt": "You are a helpful coding assistant. Use tools when needed. Be short and precise.",
+            "default": false
+        }
+    ]
+}
